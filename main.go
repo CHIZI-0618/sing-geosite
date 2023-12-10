@@ -251,8 +251,68 @@ func release(source string, destination string, output string, ruleSetOutput str
 	return nil
 }
 
+func local(input string, output string, ruleSetOutput string) error {
+	outputFile, err := os.Create(output)
+	if err != nil {
+		return err
+	}
+	defer outputFile.Close()
+	binary, err := os.ReadFile(input)
+	if err != nil {
+		return err
+	}
+	domainMap, err := parse(binary)
+	if err != nil {
+		return err
+	}
+	outputPath, _ := filepath.Abs(output)
+	os.Stderr.WriteString("write " + outputPath + "\n")
+	err = geosite.Write(outputFile, domainMap)
+	if err != nil {
+		return err
+	}
+	os.RemoveAll(ruleSetOutput)
+	err = os.MkdirAll(ruleSetOutput, 0o755)
+	if err != nil {
+		return err
+	}
+	for code, domains := range domainMap {
+		var headlessRule option.DefaultHeadlessRule
+		defaultRule := geosite.Compile(domains)
+		headlessRule.Domain = defaultRule.Domain
+		headlessRule.DomainSuffix = defaultRule.DomainSuffix
+		headlessRule.DomainKeyword = defaultRule.DomainKeyword
+		headlessRule.DomainRegex = defaultRule.DomainRegex
+		var plainRuleSet option.PlainRuleSet
+		plainRuleSet.Rules = []option.HeadlessRule{
+			{
+				Type:           C.RuleTypeDefault,
+				DefaultOptions: headlessRule,
+			},
+		}
+		srsPath, _ := filepath.Abs(filepath.Join(ruleSetOutput, "geosite-"+code+".srs"))
+		os.Stderr.WriteString("write " + srsPath + "\n")
+		outputRuleSet, err := os.Create(srsPath)
+		if err != nil {
+			return err
+		}
+		err = srs.Write(outputRuleSet, plainRuleSet)
+		if err != nil {
+			outputRuleSet.Close()
+			return err
+		}
+		outputRuleSet.Close()
+	}
+	return nil
+}
+
 func main() {
-	err := release("v2fly/domain-list-community", "sagernet/sing-geosite", "geosite.db", "rule-set")
+	err := release("v2fly/domain-list-community", "sagernet/sing-geosite", "geosite-v2fly.db", "rule-set")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = local(os.Args[1], os.Args[2], os.Args[3])
 	if err != nil {
 		log.Fatal(err)
 	}
